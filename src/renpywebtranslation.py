@@ -7,9 +7,11 @@ from tkinter import ttk, filedialog, messagebox, scrolledtext
 import string
 
 class TranslationApp:
+    DEFAULT_PLACEHOLDER = "{c100}"   # Yeni varsayılan placeholder
+
     def __init__(self, root):
         self.root = root
-        self.root.title("Ren'Py Çeviri Aracı")
+        self.root.title("Ren'Py Web Translator Tool")
         self.root.configure(bg='black')
         
         # Stil ayarları
@@ -34,13 +36,13 @@ class TranslationApp:
         self.create_widgets()
     
     def create_widgets(self):
-        self.dir_btn = ttk.Button(self.root, text="Klasör Seç", command=self.select_directory)
+        self.dir_btn = ttk.Button(self.root, text="Select folder", command=self.select_directory)
         self.dir_btn.pack(pady=10)
         
-        self.info_label = ttk.Label(self.root, text="Seçilen Klasör: Yok")
+        self.info_label = ttk.Label(self.root, text="No folder selected")
         self.info_label.pack()
         
-        self.export_btn = ttk.Button(self.root, text="HTML'e Aktar", command=self.export_html, state='disabled')
+        self.export_btn = ttk.Button(self.root, text="Extract to the html", command=self.export_html, state='disabled')
         self.export_btn.pack(pady=5)
         
         self.translate_frame = ttk.Frame(self.root)
@@ -54,8 +56,12 @@ class TranslationApp:
                                                           bg='black', fg='cyan', insertbackground='cyan')
         self.translated_text.pack(side='right', fill='both', expand=True)
         
-        self.apply_btn = ttk.Button(self.root, text="Çevirileri Uygula", command=self.apply_translations, state='disabled')
+        self.apply_btn = ttk.Button(self.root, text="Aplly Translations", command=self.apply_translations, state='disabled')
         self.apply_btn.pack(pady=10)
+
+        # Yeni buton: Özel Değişiklik Penceresi
+        self.custom_replace_btn = ttk.Button(self.root, text="Repair window", command=self.open_replacement_window)
+        self.custom_replace_btn.pack(pady=10)
     
     def is_only_punctuation(self, s):
         """Verilen s dizesinin yalnızca noktalama ve boşluk içerip içermediğini kontrol eder."""
@@ -146,9 +152,9 @@ class TranslationApp:
                                 chosen_idx = active_idx if active is not None else commented_idx
                                 if chosen is not None:
                                     raw, processed, mapping = self.process_brackets(chosen)
-                                    # Eğer extend komutuyla ve boş çeviri varsa, placeholder atayalım.
-                                    if raw.strip() == "" and "extend" in line:
-                                        processed = "{c}"
+                                    # Eğer metin boşsa, placeholder'ı atayalım.
+                                    if raw.strip() == "":
+                                        processed = self.DEFAULT_PLACEHOLDER
                                     if chosen.strip().startswith('old'):
                                         category = 'old'
                                     elif chosen.strip().startswith('new'):
@@ -198,9 +204,9 @@ class TranslationApp:
                                 if m_old and m_new:
                                     raw_old, processed_old, mapping_old = self.process_brackets(m_old[0])
                                     raw_new, processed_new, mapping_new = self.process_brackets(m_new[0])
-                                    # extend kontrolü: eğer new kısmı boş ve extend komutuyla ise
-                                    if raw_new.strip() == "" and "extend" in lines[j]:
-                                        processed_new = "{c}"
+                                    # Eğer new kısmı boşsa placeholder atayalım.
+                                    if raw_new.strip() == "":
+                                        processed_new = self.DEFAULT_PLACEHOLDER
                                     if self.is_only_punctuation(processed_new):
                                         if self.original_strings:
                                             self.original_strings[-1] += processed_new
@@ -244,8 +250,8 @@ class TranslationApp:
                                 m = re.findall(r'"((?:[^"\\]|\\.)*?)"', line, re.DOTALL)
                                 for s in m:
                                     raw, processed, mapping = self.process_brackets(s)
-                                    if raw.strip() == "" and "extend" in line:
-                                        processed = "{c}"
+                                    if raw.strip() == "":
+                                        processed = self.DEFAULT_PLACEHOLDER
                                     if self.is_only_punctuation(processed):
                                         if self.original_strings:
                                             self.original_strings[-1] += processed
@@ -276,8 +282,8 @@ class TranslationApp:
                             m = re.findall(r'"((?:[^"\\]|\\.)*?)"', line, re.DOTALL)
                             for s in m:
                                 raw, processed, mapping = self.process_brackets(s)
-                                if raw.strip() == "" and "extend" in line:
-                                    processed = "{c}"
+                                if raw.strip() == "":
+                                    processed = self.DEFAULT_PLACEHOLDER
                                 if self.is_only_punctuation(processed):
                                     if self.original_strings:
                                         self.original_strings[-1] += processed
@@ -309,8 +315,8 @@ class TranslationApp:
                             m = re.findall(r'"((?:[^"\\]|\\.)*?)"', line, re.DOTALL)
                             for s in m:
                                 raw, processed, mapping = self.process_brackets(s)
-                                if raw.strip() == "" and "extend" in line:
-                                    processed = "{c}"
+                                if raw.strip() == "":
+                                    processed = self.DEFAULT_PLACEHOLDER
                                 if self.is_only_punctuation(processed):
                                     if self.original_strings:
                                         self.original_strings[-1] += processed
@@ -340,7 +346,7 @@ class TranslationApp:
 
     def export_html(self):
         if not self.original_strings:
-            messagebox.showwarning("Uyarı", "Çevrilecek metin bulunamadı!")
+            messagebox.showwarning("Warning!!?!", "No text found to translate!\nMake sure this is a renpy game \nor select the translation folder")
             return
 
         html_content = """<html>
@@ -426,7 +432,6 @@ class TranslationApp:
             if entry['category'] == 'choice_pair':
                 line_idx = entry['new_line_index']
                 pattern = rf'"{re.escape(entry["raw_new"])}"'
-                # Lambda kullanarak replacement string'in escape karakterleri ile sorun çıkarmasını önlüyoruz.
                 lines[line_idx] = re.sub(pattern, lambda m: f'"{entry["translated_new"]}"', lines[line_idx], count=1)
             else:
                 line_idx = entry['line_index']
@@ -437,7 +442,35 @@ class TranslationApp:
             with open(fpath, 'w', encoding='utf-8') as f:
                 f.writelines(lines)
                 
-        messagebox.showinfo("Başarılı", "Çeviriler başarıyla uygulandı!")
+        messagebox.showinfo("Niicee", "Translations applied succesfully!")
+    
+    def perform_replacements(self, text):
+        # Yapılacak metin değişiklikleri:
+        text = text.replace("{C", "{c")
+        text = text.replace("[kare ", "[sq")
+        text = text.replace("% ", "%")
+        text = text.replace("%S", "%s")
+        text = text.replace("[Sq", "[sq")
+        return text
+    
+    def open_replacement_window(self):
+        rep_window = tk.Toplevel(self.root)
+        rep_window.title("Paste translation here")
+        rep_window.configure(bg='black')
+        
+        text_widget = scrolledtext.ScrolledText(rep_window, width=60, height=20,
+                                                bg='black', fg='cyan', insertbackground='cyan')
+        text_widget.pack(padx=10, pady=10)
+        
+        def apply_replacements_in_window():
+            original_text = text_widget.get(1.0, tk.END)
+            modified_text = self.perform_replacements(original_text)
+            text_widget.delete(1.0, tk.END)
+            text_widget.insert(tk.END, modified_text)
+            messagebox.showinfo("Info", "Changes implemented!")
+        
+        rep_button = ttk.Button(rep_window, text="Change", command=apply_replacements_in_window)
+        rep_button.pack(pady=10)
         
 if __name__ == "__main__":
     root = tk.Tk()
