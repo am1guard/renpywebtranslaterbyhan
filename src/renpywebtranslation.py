@@ -1,6 +1,8 @@
 import os
 import re
 import html
+import json
+import requests
 import webbrowser
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext
@@ -59,9 +61,20 @@ class TranslationApp:
         self.apply_btn = ttk.Button(self.root, text="Aplly Translations", command=self.apply_translations, state='disabled')
         self.apply_btn.pack(pady=10)
 
-        # Yeni buton: Özel Değişiklik Penceresi
+        # Repair window button
         self.custom_replace_btn = ttk.Button(self.root, text="Repair window", command=self.open_replacement_window)
         self.custom_replace_btn.pack(pady=10)
+        
+        # Auto Translate and target language entry
+        auto_frame = ttk.Frame(self.root)
+        auto_frame.pack(pady=10)
+        self.auto_translate_btn = ttk.Button(auto_frame, text="Auto Translate", command=self.auto_translate)
+        self.auto_translate_btn.pack(side='left', padx=5)
+        lang_label = ttk.Label(auto_frame, text="Target Lang:", background='black', foreground='cyan')
+        lang_label.pack(side='left', padx=5)
+        self.target_lang_entry = ttk.Entry(auto_frame, width=5)
+        self.target_lang_entry.pack(side='left', padx=5)
+        self.target_lang_entry.insert(0, "tr")  # default target language
     
     def is_only_punctuation(self, s):
         """Verilen s dizesinin yalnızca noktalama ve boşluk içerip içermediğini kontrol eder."""
@@ -112,7 +125,7 @@ class TranslationApp:
                     with open(path, 'r', encoding='utf-8') as f:
                         lines = f.readlines()
                     
-                    # Translate bloklarını işle (varsa)
+                    # İşle: translate blokları (varsa)
                     in_translate_block = False
                     block_lines = []
                     block_line_indices = []
@@ -152,7 +165,6 @@ class TranslationApp:
                                 chosen_idx = active_idx if active is not None else commented_idx
                                 if chosen is not None:
                                     raw, processed, mapping = self.process_brackets(chosen)
-                                    # Eğer metin boşsa, placeholder'ı atayalım.
                                     if raw.strip() == "":
                                         processed = self.DEFAULT_PLACEHOLDER
                                     if chosen.strip().startswith('old'):
@@ -194,7 +206,6 @@ class TranslationApp:
                             i += 1
                             continue
                         if stripped.startswith('old'):
-                            # Eğer sonraki boş satırları atlayıp gelen satır "new" ile başlıyorsa çift olarak işle
                             j = i + 1
                             while j < len(lines) and lines[j].strip() == '':
                                 j += 1
@@ -204,7 +215,6 @@ class TranslationApp:
                                 if m_old and m_new:
                                     raw_old, processed_old, mapping_old = self.process_brackets(m_old[0])
                                     raw_new, processed_new, mapping_new = self.process_brackets(m_new[0])
-                                    # Eğer new kısmı boşsa placeholder atayalım.
                                     if raw_new.strip() == "":
                                         processed_new = self.DEFAULT_PLACEHOLDER
                                     if self.is_only_punctuation(processed_new):
@@ -246,7 +256,6 @@ class TranslationApp:
                                 i = j + 1
                                 continue
                             else:
-                                # Tek satır olarak old
                                 m = re.findall(r'"((?:[^"\\]|\\.)*?)"', line, re.DOTALL)
                                 for s in m:
                                     raw, processed, mapping = self.process_brackets(s)
@@ -311,7 +320,6 @@ class TranslationApp:
                             i += 1
                             continue
                         else:
-                            # Dialog satırları
                             m = re.findall(r'"((?:[^"\\]|\\.)*?)"', line, re.DOTALL)
                             for s in m:
                                 raw, processed, mapping = self.process_brackets(s)
@@ -394,7 +402,6 @@ class TranslationApp:
                 entry['translated'] = entry['raw']
             elif entry['category'] == 'choice_pair':
                 if non_old_idx < len(translated_lines):
-                    # Eğer çeviri metni {c} ise orijinali kullan
                     if translated_lines[non_old_idx].strip() == "{c}":
                         entry['translated_new'] = entry['raw_new']
                     else:
@@ -418,7 +425,6 @@ class TranslationApp:
                 else:
                     entry['translated'] = entry['raw']
         
-        # Dosya güncelleme: Her dosyanın satırlarını oku
         files_data = {}
         for entry in self.translation_entries:
             fpath = entry['file']
@@ -426,7 +432,6 @@ class TranslationApp:
                 with open(fpath, 'r', encoding='utf-8') as f:
                     files_data[fpath] = f.readlines()
         
-        # Her girişin bulunduğu satırda, ilgili quoted string'i yeni çeviriyle değiştir
         for entry in self.translation_entries:
             lines = files_data[entry['file']]
             if entry['category'] == 'choice_pair':
@@ -445,7 +450,7 @@ class TranslationApp:
         messagebox.showinfo("Niicee", "Translations applied succesfully!")
     
     def perform_replacements(self, text):
-        # Yapılacak metin değişiklikleri:
+        # Sabit metin değişiklikleri
         text = text.replace("{C", "{c")
         text = text.replace("[kare ", "[sq")
         text = text.replace("% ", "%")
@@ -458,19 +463,98 @@ class TranslationApp:
         rep_window.title("Paste translation here")
         rep_window.configure(bg='black')
         
+        # Main text widget
         text_widget = scrolledtext.ScrolledText(rep_window, width=60, height=20,
                                                 bg='black', fg='cyan', insertbackground='cyan')
         text_widget.pack(padx=10, pady=10)
         
+        # Button to apply built-in replacements
         def apply_replacements_in_window():
             original_text = text_widget.get(1.0, tk.END)
             modified_text = self.perform_replacements(original_text)
             text_widget.delete(1.0, tk.END)
             text_widget.insert(tk.END, modified_text)
-            messagebox.showinfo("Info", "Changes implemented!")
+            messagebox.showinfo("Info", "Fixed replacements implemented!")
         
         rep_button = ttk.Button(rep_window, text="Change", command=apply_replacements_in_window)
-        rep_button.pack(pady=10)
+        rep_button.pack(pady=5)
+        
+        # New frame for custom replacement inputs
+        custom_frame = ttk.Frame(rep_window)
+        custom_frame.pack(pady=10)
+        
+        find_label = ttk.Label(custom_frame, text="Find:", background="black", foreground="cyan")
+        find_label.pack(side="left", padx=(0,5))
+        
+        find_entry = ttk.Entry(custom_frame, width=10)
+        find_entry.pack(side="left", padx=(0,5))
+        
+        replace_label = ttk.Label(custom_frame, text="Replace with:", background="black", foreground="cyan")
+        replace_label.pack(side="left", padx=(0,5))
+        
+        replace_entry = ttk.Entry(custom_frame, width=10)
+        replace_entry.pack(side="left", padx=(0,5))
+        
+        def apply_custom_replacement():
+            find_text = find_entry.get()
+            replace_text = replace_entry.get()
+            if not find_text:
+                messagebox.showwarning("Warning", "Please enter text to find.")
+                return
+            original_text = text_widget.get(1.0, tk.END)
+            modified_text = original_text.replace(find_text, replace_text)
+            text_widget.delete(1.0, tk.END)
+            text_widget.insert(tk.END, modified_text)
+            messagebox.showinfo("Info", f"Replaced '{find_text}' with '{replace_text}'.")
+        
+        custom_button = ttk.Button(custom_frame, text="Custom Replace", command=apply_custom_replacement)
+        custom_button.pack(side="left", padx=5)
+    
+    def google_translate(self, texts, from_lang="auto", to_lang="tr"):
+        """
+        Gönderilen metin listesini Google API aracılığıyla çevirir.
+        """
+        body = [
+            [texts, from_lang, to_lang],
+            "te_lib"
+        ]
+        
+        headers = {
+            'Content-Type': 'application/json+protobuf',
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/104.0.5112.79 Safari/537.36',
+            'Referer': 'https://www.amazon.com',
+            'x-goog-api-key': 'AIzaSyATBXajvzQLTDHEQbcpq0Ihe0vWDHmO520'
+        }
+        
+        try:
+            response = requests.post(
+                'https://translate-pa.googleapis.com/v1/translateHtml',
+                headers=headers,
+                data=json.dumps(body)
+            )
+            response.raise_for_status()
+            translated_texts = [html.unescape(line) for line in response.json()[0]]
+            return translated_texts
+        except Exception as e:
+            print(f"Erro ao realizar tradução: {e}")
+            return []
+    
+    def auto_translate(self):
+        if not self.original_strings:
+            messagebox.showwarning("Warning", "No text found to translate!")
+            return
+        
+        target_lang = self.target_lang_entry.get().strip() or "tr"
+        self.auto_translate_btn.config(state='disabled')
+        translated_texts = self.google_translate(self.original_strings, from_lang="auto", to_lang=target_lang)
+        if translated_texts:
+            self.translated_text.delete(1.0, tk.END)
+            self.translated_text.insert(tk.END, "\n".join(translated_texts))
+            messagebox.showinfo("Info", "Auto translation completed!")
+            self.apply_btn.config(state='normal')
+        else:
+            messagebox.showerror("Error", "Auto translation failed!")
+        self.auto_translate_btn.config(state='normal')
         
 if __name__ == "__main__":
     root = tk.Tk()
